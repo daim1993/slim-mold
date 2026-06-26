@@ -1,0 +1,769 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Physarum — Slime Mold Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --void:#05070a;
+    --panel:rgba(10,14,18,0.72);
+    --panel-solid:#0a0e12;
+    --line:rgba(150,180,190,0.14);
+    --line-strong:rgba(150,180,190,0.28);
+    --ink:#cfe2e6;
+    --ink-dim:#7d9098;
+    --ink-faint:#4a585e;
+    --bio:#7ff0d0;       /* living accent */
+    --bio-warm:#ffcf7a;
+    --danger:#ff7a7a;
+    --mono:"Space Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --disp:"Space Grotesk", system-ui, -apple-system, sans-serif;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; height:100%; background:var(--void); overflow:hidden; color:var(--ink); font-family:var(--disp);}
+  #stage{position:fixed; inset:0;}
+  canvas{position:absolute; inset:0; width:100%; height:100%; display:block; cursor:crosshair; touch-action:none;}
+
+  #prompt{position:fixed; inset:0; z-index:4; display:flex; align-items:center; justify-content:center; pointer-events:none; transition:opacity .6s ease;}
+  #prompt span{font-family:var(--mono); font-size:11px; letter-spacing:.3em; text-transform:uppercase; color:var(--ink-dim); padding:12px 22px; border:1px solid var(--line); border-radius:30px; background:rgba(10,14,18,.4); backdrop-filter:blur(6px); animation:bob 3s ease-in-out infinite;}
+  @keyframes bob{0%,100%{transform:translateY(0); opacity:.6;}50%{transform:translateY(-6px); opacity:1;}}
+  #prompt.hide{opacity:0;}
+
+  /* specimen label / hero */
+  #label{
+    position:fixed; top:18px; left:20px; z-index:5; pointer-events:none;
+    user-select:none;
+  }
+  #label .kicker{
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.34em; text-transform:uppercase;
+    color:var(--bio); opacity:.85;
+  }
+  #label h1{
+    margin:.18em 0 0; font-family:var(--disp); font-weight:600; font-size:26px; letter-spacing:-.01em;
+    line-height:1; color:var(--ink);
+  }
+  #label h1 em{font-style:italic; font-weight:400; color:var(--ink-dim);}
+  #label .sub{
+    margin-top:.5em; font-family:var(--mono); font-size:10px; letter-spacing:.06em; color:var(--ink-faint);
+    max-width:240px; line-height:1.5;
+  }
+
+  /* console */
+  #console{
+    position:fixed; top:14px; right:14px; bottom:14px; z-index:6;
+    width:300px; max-width:calc(100vw - 28px);
+    background:var(--panel); backdrop-filter:blur(14px) saturate(1.1); -webkit-backdrop-filter:blur(14px) saturate(1.1);
+    border:1px solid var(--line); border-radius:14px;
+    display:flex; flex-direction:column; overflow:hidden;
+    box-shadow:0 24px 60px rgba(0,0,0,.5);
+  }
+  #console header{
+    display:flex; align-items:center; gap:10px; padding:13px 14px 11px; border-bottom:1px solid var(--line);
+  }
+  .dot{width:8px; height:8px; border-radius:50%; background:var(--bio); box-shadow:0 0 10px var(--bio); animation:pulse 2.4s ease-in-out infinite;}
+  @keyframes pulse{0%,100%{opacity:.5; transform:scale(.85);}50%{opacity:1; transform:scale(1);}}
+  #console header .title{font-family:var(--mono); font-size:11px; letter-spacing:.22em; text-transform:uppercase; color:var(--ink-dim);}
+  #console header .ver{margin-left:auto; font-family:var(--mono); font-size:10px; color:var(--ink-faint);}
+
+  .scroll{overflow-y:auto; padding:6px 14px 14px; flex:1; scrollbar-width:thin; scrollbar-color:var(--line-strong) transparent;}
+  .scroll::-webkit-scrollbar{width:8px;}
+  .scroll::-webkit-scrollbar-thumb{background:var(--line-strong); border-radius:8px;}
+
+  /* readouts strip */
+  .readouts{display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--line); border:1px solid var(--line); border-radius:9px; overflow:hidden; margin:10px 0 14px;}
+  .readouts .cell{background:var(--panel-solid); padding:9px 8px 8px; text-align:center;}
+  .readouts .val{font-family:var(--mono); font-size:15px; color:var(--bio); line-height:1;}
+  .readouts .lbl{font-family:var(--mono); font-size:8.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-faint); margin-top:5px;}
+
+  .group-title{font-family:var(--mono); font-size:9px; letter-spacing:.24em; text-transform:uppercase; color:var(--ink-faint); margin:16px 0 8px; display:flex; align-items:center; gap:8px;}
+  .group-title::after{content:""; flex:1; height:1px; background:var(--line);}
+
+  .ctrl{margin:11px 0;}
+  .ctrl .row{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px;}
+  .ctrl label{font-size:12px; color:var(--ink); letter-spacing:.01em;}
+  .ctrl .num{font-family:var(--mono); font-size:11px; color:var(--ink-dim);}
+  input[type=range]{
+    -webkit-appearance:none; appearance:none; width:100%; height:3px; border-radius:3px;
+    background:linear-gradient(90deg,var(--bio) 0%,var(--bio) var(--fill,40%),rgba(150,180,190,.16) var(--fill,40%));
+    outline:none; cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:var(--ink); border:2px solid var(--void); box-shadow:0 0 0 1px var(--bio), 0 2px 6px rgba(0,0,0,.5); cursor:grab;}
+  input[type=range]::-webkit-slider-thumb:active{cursor:grabbing; background:var(--bio);}
+  input[type=range]::-moz-range-thumb{width:14px; height:14px; border-radius:50%; background:var(--ink); border:2px solid var(--void); box-shadow:0 0 0 1px var(--bio); cursor:grab;}
+
+  .seg{display:flex; gap:4px; flex-wrap:wrap;}
+  .seg button, .palettes button, .actions button, .presets button{
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.04em;
+    color:var(--ink-dim); background:var(--panel-solid); border:1px solid var(--line);
+    border-radius:7px; padding:7px 9px; cursor:pointer; transition:.16s; flex:1; min-width:fit-content;
+  }
+  .seg button:hover, .palettes button:hover, .actions button:hover, .presets button:hover{color:var(--ink); border-color:var(--line-strong);}
+  .seg button.on, .palettes button.on{color:var(--void); background:var(--bio); border-color:var(--bio); font-weight:700;}
+
+  .palettes{display:grid; grid-template-columns:repeat(3,1fr); gap:5px;}
+  .palettes button{display:flex; flex-direction:column; gap:5px; align-items:stretch; padding:6px;}
+  .palettes .sw{height:14px; border-radius:4px;}
+  .palettes .pn{font-size:9px; letter-spacing:.04em;}
+
+  .presets{display:grid; grid-template-columns:1fr 1fr; gap:5px;}
+  .actions{display:grid; grid-template-columns:1fr 1fr; gap:5px; margin-top:6px;}
+  .actions .wide{grid-column:1 / -1;}
+  .actions .primary{color:var(--void); background:var(--bio); border-color:var(--bio); font-weight:700;}
+  .actions .ghost-danger:hover{color:var(--danger); border-color:rgba(255,122,122,.4);}
+
+  .hint{font-family:var(--mono); font-size:9.5px; line-height:1.6; color:var(--ink-faint); margin-top:14px; padding-top:12px; border-top:1px solid var(--line);}
+  .hint b{color:var(--ink-dim); font-weight:400;}
+
+  /* collapse toggle (mobile) */
+  #toggle{
+    position:fixed; z-index:7; top:14px; right:14px; display:none;
+    width:42px; height:42px; border-radius:11px; border:1px solid var(--line);
+    background:var(--panel); backdrop-filter:blur(14px); color:var(--bio); cursor:pointer;
+    font-size:18px; align-items:center; justify-content:center;
+  }
+  body.collapsed #console{transform:translateX(120%); opacity:0; pointer-events:none;}
+  #console{transition:transform .32s cubic-bezier(.4,0,.2,1), opacity .32s;}
+
+  @media (max-width:720px){
+    #toggle{display:flex;}
+    #console{top:64px; width:min(320px, calc(100vw - 28px));}
+    #label{top:14px; left:14px;}
+    #label h1{font-size:21px;}
+    #label .sub{display:none;}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .dot{animation:none;}
+    #console{transition:none;}
+  }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="c"></canvas></div>
+<div id="prompt"><span>click &amp; drag to grow life</span></div>
+
+<div id="label">
+  <div class="kicker">Specimen · Physarum polycephalum</div>
+  <h1>Slime Mold <em>Lab</em></h1>
+  <div class="sub">Thousands of agents sense, steer toward, and reinforce their own pheromone trails — emergent transport networks, no leader.</div>
+</div>
+
+<button id="toggle" aria-label="Toggle console">⚙</button>
+
+<aside id="console">
+  <header>
+    <span class="dot"></span>
+    <span class="title">Culture&nbsp;Console</span>
+    <span class="ver">v1 · agents</span>
+  </header>
+  <div class="scroll">
+
+    <div class="readouts">
+      <div class="cell"><div class="val" id="r-agents">—</div><div class="lbl">Agents</div></div>
+      <div class="cell"><div class="val" id="r-fps">—</div><div class="lbl">FPS</div></div>
+      <div class="cell"><div class="val" id="r-cov">—</div><div class="lbl">Coverage</div></div>
+    </div>
+
+    <div class="group-title">Behaviour</div>
+
+    <div class="ctrl" data-range>
+      <div class="row"><label>Population</label><span class="num" id="n-pop"></span></div>
+      <input type="range" id="pop" min="500" max="60000" step="500" value="8000">
+    </div>
+    <div class="ctrl" data-range>
+      <div class="row"><label>Move speed</label><span class="num" id="n-speed"></span></div>
+      <input type="range" id="speed" min="0.2" max="3" step="0.05" value="1">
+    </div>
+    <div class="ctrl" data-range>
+      <div class="row"><label>Sensor reach</label><span class="num" id="n-sdist"></span></div>
+      <input type="range" id="sdist" min="2" max="32" step="1" value="14">
+    </div>
+    <div class="ctrl" data-range>
+      <div class="row"><label>Sensor angle</label><span class="num" id="n-sang"></span></div>
+      <input type="range" id="sang" min="5" max="80" step="1" value="20">
+    </div>
+    <div class="ctrl" data-range>
+      <div class="row"><label>Rotation</label><span class="num" id="n-turn"></span></div>
+      <input type="range" id="turn" min="2" max="80" step="1" value="12">
+    </div>
+    <div class="ctrl" data-range>
+      <div class="row"><label>Exploration</label><span class="num" id="n-explore"></span></div>
+      <input type="range" id="explore" min="0" max="100" step="1" value="20">
+    </div>
+
+    <div class="group-title">Branching</div>
+
+    <div class="ctrl" data-range>
+      <div class="row"><label>Split rate</label><span class="num" id="n-branch"></span></div>
+      <input type="range" id="branch" min="0" max="100" step="1" value="36">
+    </div>
+    <div class="ctrl" data-range>
+      <div class="row"><label>Combine rate</label><span class="num" id="n-merge"></span></div>
+      <input type="range" id="merge" min="0" max="100" step="1" value="20">
+    </div>
+    <div class="ctrl" data-range>
+      <div class="row"><label>Fork angle</label><span class="num" id="n-split"></span></div>
+      <input type="range" id="split" min="8" max="90" step="1" value="44">
+    </div>
+
+    <div class="group-title">Trail field</div>
+
+    <div class="ctrl" data-range>
+      <div class="row"><label>Deposit</label><span class="num" id="n-dep"></span></div>
+      <input type="range" id="dep" min="1" max="20" step="0.5" value="7">
+    </div>
+    <div class="ctrl" data-range>
+      <div class="row"><label>Evaporation</label><span class="num" id="n-evap"></span></div>
+      <input type="range" id="evap" min="1" max="20" step="1" value="4">
+    </div>
+    <div class="ctrl" data-range>
+      <div class="row"><label>Diffusion</label><span class="num" id="n-diff"></span></div>
+      <input type="range" id="diff" min="0" max="100" step="1" value="15">
+    </div>
+    <div class="ctrl" data-range>
+      <div class="row"><label>Glow</label><span class="num" id="n-glow"></span></div>
+      <input type="range" id="glow" min="20" max="400" step="5" value="90">
+    </div>
+    <div class="ctrl" data-range>
+      <div class="row"><label>Contrast</label><span class="num" id="n-floor"></span></div>
+      <input type="range" id="floor" min="0" max="55" step="1" value="15">
+    </div>
+
+    <div class="group-title">Cursor</div>
+    <div class="seg" id="interact-seg">
+      <button data-int="plant" class="on">🌱 Plant</button>
+      <button data-int="lure">◎ Lure</button>
+      <button data-int="erase">⌫ Erase</button>
+    </div>
+
+    <div class="group-title">Seeding</div>
+    <div class="seg" id="seed-seg">
+      <button data-seed="grow" class="on">Empty</button>
+      <button data-seed="scatter">Scatter</button>
+      <button data-seed="ring">Ring</button>
+      <button data-seed="disc">Disc</button>
+      <button data-seed="point">Point</button>
+    </div>
+
+    <div class="group-title">Pigment</div>
+    <div class="palettes" id="pal-grid"></div>
+
+    <div class="group-title">Cultures</div>
+    <div class="presets" id="preset-grid"></div>
+
+    <div class="actions">
+      <button id="btn-play" class="primary wide">⏸ Pause</button>
+      <button id="btn-reseed">↻ Reseed</button>
+      <button id="btn-random">⤬ Mutate</button>
+      <button id="btn-clear" class="ghost-danger wide">✕ Clear field</button>
+    </div>
+
+    <div class="hint">
+      <b>Plant</b> — click &amp; drag to grow a colony from your cursor.<br>
+      <b>Lure</b> — drop a nutrient blob the mold crawls toward.<br>
+      <b>Erase</b> — wipe trail (or right-drag / two-finger anytime).
+    </div>
+  </div>
+</aside>
+
+<script>
+"use strict";
+(function(){
+  const TAU = Math.PI*2;
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d', { alpha:false });
+
+  // ---- simulation state ----
+  let W=1, H=1;                 // sim grid dimensions
+  let trailA, trailB;          // Float32 trail fields (ping-pong)
+  let img;                     // ImageData for rendering
+  let posX, posY, ang;         // agent arrays
+  let agentCount = 0;          // allocated pool size
+  let live = 0;                // active (growing) agents in [0, live)
+  let recyclePtr = 0;          // round-robin when pool is full
+
+  // ---- parameters ----
+  const P = {
+    pop:8000, speed:1, sdist:14, sangDeg:20, turnDeg:12, explore:20,
+    branch:36, merge:20, splitDeg:44,
+    dep:7, evap:4, diff:15, glow:90, floor:15, seed:'grow', interact:'plant', running:true
+  };
+
+  // ---- pointer / brush ----
+  const brush = { active:false, erase:false, x:0, y:0 };
+
+  // ===================== palettes =====================
+  // each: array of [stop0..1, r,g,b]
+  const PALETTES = {
+    Bioluminescence: [[0,3,5,10],[0.25,8,40,55],[0.5,30,150,150],[0.75,127,240,208],[1,235,255,245]],
+    Ember:           [[0,4,2,2],[0.3,70,15,10],[0.55,180,55,20],[0.78,255,150,40],[1,255,245,200]],
+    Aurora:          [[0,2,4,12],[0.3,20,60,120],[0.55,40,200,150],[0.8,160,255,120],[1,245,255,235]],
+    Magenta:         [[0,6,2,9],[0.35,80,15,90],[0.6,200,40,150],[0.82,255,120,200],[1,255,240,250]],
+    Spore:           [[0,3,3,4],[0.4,45,38,20],[0.65,150,120,50],[0.85,225,200,120],[1,255,250,225]],
+    Ivory:           [[0,4,5,7],[0.5,90,100,110],[0.8,200,210,215],[1,255,255,255]],
+  };
+  const palNames = Object.keys(PALETTES);
+  let palName = 'Bioluminescence';
+  let LUT = new Uint8Array(256*3);
+
+  // brightness curve: lifts faint trails so thin branches are visible as lines
+  const gammaLUT = new Uint8Array(256);
+  for(let i=0;i<256;i++) gammaLUT[i]=Math.round(Math.pow(i/255,0.75)*255);
+
+  function buildLUT(name){
+    const stops = PALETTES[name];
+    for(let i=0;i<256;i++){
+      const t=i/255;
+      let a=stops[0], b=stops[stops.length-1];
+      for(let s=0;s<stops.length-1;s++){
+        if(t>=stops[s][0] && t<=stops[s+1][0]){ a=stops[s]; b=stops[s+1]; break; }
+      }
+      const span=(b[0]-a[0])||1, f=(t-a[0])/span;
+      LUT[i*3]  =(a[1]+(b[1]-a[1])*f)|0;
+      LUT[i*3+1]=(a[2]+(b[2]-a[2])*f)|0;
+      LUT[i*3+2]=(a[3]+(b[3]-a[3])*f)|0;
+    }
+  }
+
+  // ===================== presets =====================
+  const PRESETS = {
+    Veins:    { speed:1, sdist:15, sangDeg:18, turnDeg:12, explore:28, branch:22, merge:36, splitDeg:30, dep:7, evap:5, diff:13, glow:85, floor:18, seed:'scatter' },
+    Branches: { speed:1, sdist:14, sangDeg:20, turnDeg:12, explore:22, branch:38, merge:20, splitDeg:46, dep:7, evap:4, diff:15, glow:90, floor:14, seed:'scatter' },
+    Web:      { speed:1.1, sdist:18, sangDeg:28, turnDeg:14, explore:38, branch:26, merge:30, splitDeg:30, dep:6, evap:4, diff:14, glow:95, floor:15, seed:'ring' },
+    Filaments:{ speed:1, sdist:10, sangDeg:26, turnDeg:24, explore:58, branch:30, merge:22, splitDeg:34, dep:6, evap:4, diff:20, glow:100, floor:11, seed:'scatter' },
+    Cells:    { speed:1.4, sdist:24, sangDeg:55, turnDeg:10, explore:22, branch:16, merge:30, splitDeg:40, dep:5, evap:6, diff:25, glow:110, floor:14, seed:'scatter' },
+    Frenzy:   { speed:2.4, sdist:6, sangDeg:60, turnDeg:60, explore:85, branch:50, merge:18, splitDeg:55, dep:7, evap:11, diff:60, glow:160, floor:8, seed:'point' },
+  };
+
+  // ===================== sizing / allocation =====================
+  function resize(){
+    const dish = document.getElementById('stage').getBoundingClientRect();
+    const cssW = Math.max(1, dish.width), cssH = Math.max(1, dish.height);
+    const MAX_CELLS = 240000;
+    let scale = Math.min(1, Math.sqrt(MAX_CELLS/(cssW*cssH)));
+    W = Math.max(2, Math.round(cssW*scale));
+    H = Math.max(2, Math.round(cssH*scale));
+    canvas.width = W; canvas.height = H;
+    trailA = new Float32Array(W*H);
+    trailB = new Float32Array(W*H);
+    img = ctx.createImageData(W,H);
+    // opaque alpha
+    const d = img.data;
+    for(let i=3;i<d.length;i+=4) d[i]=255;
+    seed(P.seed);
+  }
+
+  // ===================== seeding =====================
+  function alloc(n){
+    posX=new Float32Array(n); posY=new Float32Array(n); ang=new Float32Array(n);
+    agentCount=n;
+  }
+  function seed(mode, clearField){
+    alloc(P.pop|0);
+    if(mode==='grow'){ if(trailA){ trailA.fill(0); trailB.fill(0); } live=0; recyclePtr=0; return; }
+    if(clearField && trailA){ trailA.fill(0); trailB.fill(0); }
+    live=agentCount; recyclePtr=0;
+    const cx=W/2, cy=H/2, n=agentCount;
+    const R=Math.min(W,H)*0.36;
+    for(let i=0;i<n;i++){
+      let x,y,a;
+      if(mode==='scatter'){
+        x=Math.random()*W; y=Math.random()*H; a=Math.random()*TAU;
+      } else if(mode==='ring'){
+        const t=Math.random()*TAU;
+        x=cx+Math.cos(t)*R; y=cy+Math.sin(t)*R;
+        a=t+Math.PI + (Math.random()-0.5)*0.6; // inward-ish
+      } else if(mode==='disc'){
+        const t=Math.random()*TAU, r=Math.sqrt(Math.random())*R;
+        x=cx+Math.cos(t)*r; y=cy+Math.sin(t)*r; a=Math.random()*TAU;
+      } else { // point
+        x=cx+(Math.random()-0.5)*4; y=cy+(Math.random()-0.5)*4; a=Math.random()*TAU;
+      }
+      posX[i]=x; posY[i]=y; ang[i]=a;
+    }
+  }
+
+  // ===================== field sampling (wrapped) =====================
+  function sample(x,y){
+    let xi=x|0, yi=y|0;
+    xi=((xi%W)+W)%W; yi=((yi%H)+H)%H;
+    return trailA[yi*W+xi];
+  }
+
+  // ===================== one simulation step =====================
+  function step(){
+    const sDist=P.sdist;
+    const sAng=P.sangDeg*Math.PI/180;
+    const tAng=P.turnDeg*Math.PI/180;
+    const sp=P.speed;
+    const dep=P.dep;
+    const expl=P.explore/100;
+    const wander=expl*0.55;          // meander when foraging open space
+    const openThr=P.glow*0.06;       // below this trail = unexplored frontier
+    const crowdThr=P.glow*1.0;       // above this = saturated, steer away
+    const n=live;
+
+    for(let i=0;i<n;i++){
+      const a=ang[i], x=posX[i], y=posY[i];
+      const fa=a, la=a+sAng, ra=a-sAng;
+      const wf=sample(x+Math.cos(fa)*sDist, y+Math.sin(fa)*sDist);
+      const wl=sample(x+Math.cos(la)*sDist, y+Math.sin(la)*sDist);
+      const wr=sample(x+Math.cos(ra)*sDist, y+Math.sin(ra)*sDist);
+
+      let na=a;
+      const maxS = wf>wl ? (wf>wr?wf:wr) : (wl>wr?wl:wr);
+      if(maxS < openThr){
+        // frontier: forage outward into empty space with a gentle meander
+        na = a + (Math.random()*2-1)*wander;
+      } else {
+        // on a trail: follow the strongest sensor (builds veins)
+        if(wf>wl && wf>wr){ /* straight */ }
+        else if(wf<wl && wf<wr){ na += (Math.random()<0.5? tAng : -tAng)*0.6; }
+        else if(wl>wr){ na += tAng; }
+        else if(wr>wl){ na -= tAng; }
+        // avoid crowding: if the path ahead is saturated, veer toward open space
+        if(wf > crowdThr){ na += (wl<wr ? tAng : -tAng); }
+      }
+
+      let nx=x+Math.cos(na)*sp;
+      let ny=y+Math.sin(na)*sp;
+      // wrap
+      if(nx<0) nx+=W; else if(nx>=W) nx-=W;
+      if(ny<0) ny+=H; else if(ny>=H) ny-=H;
+
+      posX[i]=nx; posY[i]=ny; ang[i]=na;
+      // deposit
+      const idx=((ny|0)*W)+(nx|0);
+      trailA[idx]+=dep;
+    }
+  }
+
+  // ===================== branching: particles split (fork) & combine (fuse) =====================
+  function topology(){
+    const n0=live;
+
+    // SPLIT — a particle forks, spawning a child that diverges by the fork angle.
+    // Splitting is biased to the growing frontier (weak/medium trail), so established
+    // tubes stay clean while tips keep branching.
+    if(P.branch>0 && live<agentCount){
+      const pSplit=(P.branch/100)*0.010;
+      const half=(P.splitDeg*Math.PI/180)*0.5;
+      const frontierMax=P.glow*0.9;        // don't fork inside dense trunks
+      for(let i=0;i<n0 && live<agentCount;i++){
+        const tx=((posX[i]|0)%W+W)%W, ty=((posY[i]|0)%H+H)%H;
+        if(trailA[ty*W+tx] > frontierMax) continue;
+        if(Math.random()<pSplit){
+          const j=live++;
+          posX[j]=posX[i]; posY[j]=posY[i];
+          ang[j]=ang[i]+half;             // child arm
+          ang[i]=ang[i]-half;             // parent arm — symmetric Y fork
+        }
+      }
+    }
+
+    // COMBINE — where a particle sits on a strong, established tube, it fuses into it
+    // (removed via swap), so converging branches merge instead of piling up.
+    if(P.merge>0 && live>0){
+      const pMerge=(P.merge/100)*0.06;
+      const thr=P.glow*1.15;
+      let i=0;
+      while(i<live){
+        const tx=((posX[i]|0)%W+W)%W, ty=((posY[i]|0)%H+H)%H;
+        if(trailA[ty*W+tx] > thr && Math.random()<pMerge){
+          live--;
+          posX[i]=posX[live]; posY[i]=posY[live]; ang[i]=ang[live];
+          // reprocess the swapped-in particle (no i++)
+        } else i++;
+      }
+    }
+  }
+
+  // ===================== diffuse + decay (3x3 wrapped blur) =====================
+  function diffuseDecay(){
+    const diff=P.diff/100;              // 0..1 blend toward blurred
+    const decay=1-(P.evap/200);         // evaporation: evap 1..20 -> 0.995 .. 0.90
+    const src=trailA, dst=trailB;
+    const w=W, h=H;
+    for(let y=0;y<h;y++){
+      const ym=((y-1+h)%h)*w, y0=y*w, yp=((y+1)%h)*w;
+      for(let x=0;x<w;x++){
+        const xm=(x-1+w)%w, xp=(x+1)%w;
+        const s = src[ym+xm]+src[ym+x]+src[ym+xp]
+                + src[y0+xm]+src[y0+x]+src[y0+xp]
+                + src[yp+xm]+src[yp+x]+src[yp+xp];
+        const blurred=s/9;
+        const self=src[y0+x];
+        let v=self+(blurred-self)*diff;
+        v*=decay;
+        dst[y0+x]=v;
+      }
+    }
+    trailA=dst; trailB=src;
+  }
+
+  // ===================== render =====================
+  let coverage=0;
+  function render(){
+    const d=img.data, t=trailA, n=W*H;
+    const scale=1/P.glow;                 // normalize: ~1.0 at the glow level
+    const floor=P.floor/100;              // black point — gates transient noise
+    const inv=1/Math.max(0.001,(1-floor));
+    let lit=0;
+    for(let i=0;i<n;i++){
+      let nv=t[i]*scale;
+      if(nv>1) nv=1;
+      nv=(nv-floor)*inv;                  // levels: clip faint speckle to black
+      let idx;
+      if(nv<=0){ idx=0; }
+      else { idx=gammaLUT[(nv*255)|0]; lit++; }
+      const o=i*4, l=idx*3;
+      d[o]=LUT[l]; d[o+1]=LUT[l+1]; d[o+2]=LUT[l+2];
+    }
+    ctx.putImageData(img,0,0);
+    coverage = lit/n;
+  }
+
+  // ===================== brush: plant (grow) / lure / erase =====================
+  function applyBrush(){
+    if(!brush.active) return;
+    const gx=brush.x*W, gy=brush.y*H;
+    const rad=Math.max(4, Math.min(W,H)*0.045);
+    const mode = brush.erase ? 'erase' : P.interact;
+
+    if(mode==='plant'){ plantAt(gx,gy,rad); return; }
+
+    // lure / erase: paint or wipe the trail field
+    const r2=rad*rad;
+    const strength = P.glow*1.4;
+    const x0=Math.max(0,(gx-rad)|0), x1=Math.min(W-1,(gx+rad)|0);
+    const y0=Math.max(0,(gy-rad)|0), y1=Math.min(H-1,(gy+rad)|0);
+    for(let y=y0;y<=y1;y++){
+      for(let x=x0;x<=x1;x++){
+        const dx=x-gx, dy=y-gy, dd=dx*dx+dy*dy;
+        if(dd>r2) continue;
+        const f=1-dd/r2;
+        const idx=y*W+x;
+        if(mode==='erase') trailA[idx]*=(1-f);
+        else trailA[idx]+= strength*f*f;
+      }
+    }
+  }
+
+  // grow a living colony at the cursor: activate dormant agents (or recycle)
+  function plantAt(gx,gy,rad){
+    const batch=Math.max(30,(P.pop/120)|0);
+    const jit=rad*0.6;
+    for(let k=0;k<batch;k++){
+      let idx;
+      if(live<agentCount){ idx=live; live++; }
+      else { if(recyclePtr>=live) recyclePtr=0; idx=recyclePtr++; }
+      const a=Math.random()*TAU, r=Math.sqrt(Math.random())*jit;
+      let x=gx+Math.cos(a)*r, y=gy+Math.sin(a)*r;
+      x=((x%W)+W)%W; y=((y%H)+H)%H;
+      posX[idx]=x; posY[idx]=y; ang[idx]=a + (Math.random()-0.5)*0.7; // fan out radially
+    }
+    // seed a faint trail so the colony has a gradient to follow
+    const r2=rad*rad, strength=P.glow*0.45;
+    const x0=Math.max(0,(gx-rad)|0), x1=Math.min(W-1,(gx+rad)|0);
+    const y0=Math.max(0,(gy-rad)|0), y1=Math.min(H-1,(gy+rad)|0);
+    for(let y=y0;y<=y1;y++){
+      for(let x=x0;x<=x1;x++){
+        const dx=x-gx, dy=y-gy, dd=dx*dx+dy*dy;
+        if(dd>r2) continue;
+        const f=1-dd/r2;
+        trailA[y*W+x]+= strength*f*f;
+      }
+    }
+  }
+
+  // ===================== main loop =====================
+  let lastT=performance.now(), fpsAcc=0, fpsN=0, fps=0;
+  function frame(now){
+    requestAnimationFrame(frame);
+    const dt=now-lastT; lastT=now;
+    if(P.running){
+      applyBrush();
+      step();
+      topology();
+      diffuseDecay();
+    }
+    render();
+    // fps
+    fpsAcc+=dt; fpsN++;
+    if(fpsAcc>=400){ fps=Math.round(1000/(fpsAcc/fpsN)); fpsAcc=0; fpsN=0; updateReadouts(); }
+  }
+
+  // ===================== UI wiring =====================
+  function $(id){return document.getElementById(id);}
+
+  function updateReadouts(){
+    $('r-agents').textContent = live>=1000 ? (live/1000).toFixed(live>=10000?0:1)+'k' : live;
+    $('r-fps').textContent = fps;
+    $('r-cov').textContent = (coverage*100).toFixed(0)+'%';
+  }
+
+  function fillFromInput(inp){
+    const min=+inp.min, max=+inp.max, v=+inp.value;
+    inp.style.setProperty('--fill', ((v-min)/(max-min)*100)+'%');
+  }
+
+  function labelFor(id,v){
+    switch(id){
+      case 'pop': return v>=1000?(v/1000)+'k':v;
+      case 'speed': return (+v).toFixed(2)+' px';
+      case 'sdist': return v+' px';
+      case 'sang': return v+'°';
+      case 'turn': return v+'°';
+      case 'explore': return v;
+      case 'branch': return v;
+      case 'merge': return v;
+      case 'split': return v+'°';
+      case 'dep': return (+v).toFixed(1);
+      case 'evap': return v;
+      case 'diff': return v+'%';
+      case 'glow': return v;
+      case 'floor': return v+'%';
+    }
+    return v;
+  }
+
+  const rangeMap = {
+    pop:['n-pop', v=>P.pop=+v, true],
+    speed:['n-speed', v=>P.speed=+v, false],
+    sdist:['n-sdist', v=>P.sdist=+v, false],
+    sang:['n-sang', v=>P.sangDeg=+v, false],
+    turn:['n-turn', v=>P.turnDeg=+v, false],
+    explore:['n-explore', v=>P.explore=+v, false],
+    branch:['n-branch', v=>P.branch=+v, false],
+    merge:['n-merge', v=>P.merge=+v, false],
+    split:['n-split', v=>P.splitDeg=+v, false],
+    dep:['n-dep', v=>P.dep=+v, false],
+    evap:['n-evap', v=>P.evap=+v, false],
+    diff:['n-diff', v=>P.diff=+v, false],
+    glow:['n-glow', v=>P.glow=+v, false],
+    floor:['n-floor', v=>P.floor=+v, false],
+  };
+  Object.keys(rangeMap).forEach(id=>{
+    const inp=$(id), [lblId, setter, reseeds]=rangeMap[id];
+    const sync=()=>{ $(lblId).textContent=labelFor(id, inp.value); fillFromInput(inp); };
+    inp.addEventListener('input', ()=>{ setter(inp.value); sync(); if(reseeds) seed(P.seed); });
+    sync();
+  });
+
+  // cursor / interaction mode
+  $('interact-seg').addEventListener('click', e=>{
+    const b=e.target.closest('button'); if(!b) return;
+    [...e.currentTarget.children].forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    P.interact=b.dataset.int;
+  });
+
+  // seeding segment
+  $('seed-seg').addEventListener('click', e=>{
+    const b=e.target.closest('button'); if(!b) return;
+    [...e.currentTarget.children].forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    P.seed=b.dataset.seed; seed(P.seed, true);
+  });
+
+  // palettes
+  const palGrid=$('pal-grid');
+  palNames.forEach(name=>{
+    const b=document.createElement('button');
+    if(name===palName) b.classList.add('on');
+    const sw=document.createElement('div'); sw.className='sw';
+    const st=PALETTES[name];
+    sw.style.background=`linear-gradient(90deg, rgb(${st[1][1]},${st[1][2]},${st[1][3]}), rgb(${st[3][1]},${st[3][2]},${st[3][3]}), rgb(${st[st.length-1][1]},${st[st.length-1][2]},${st[st.length-1][3]}))`;
+    const pn=document.createElement('div'); pn.className='pn'; pn.textContent=name;
+    b.appendChild(sw); b.appendChild(pn);
+    b.addEventListener('click', ()=>{
+      palName=name; buildLUT(name);
+      [...palGrid.children].forEach(x=>x.classList.remove('on'));
+      b.classList.add('on');
+    });
+    palGrid.appendChild(b);
+  });
+
+  // presets
+  const presetGrid=$('preset-grid');
+  Object.keys(PRESETS).forEach(name=>{
+    const b=document.createElement('button'); b.textContent=name;
+    b.addEventListener('click', ()=>{ applyPreset(name); });
+    presetGrid.appendChild(b);
+  });
+  function applyPreset(name){
+    const pr=PRESETS[name];
+    Object.assign(P, pr);
+    // sync sliders
+    syncSlider('speed',P.speed); syncSlider('sdist',P.sdist); syncSlider('sang',P.sangDeg);
+    syncSlider('turn',P.turnDeg); syncSlider('explore',P.explore); syncSlider('dep',P.dep); syncSlider('evap',P.evap);
+    syncSlider('diff',P.diff); syncSlider('glow',P.glow); syncSlider('floor',P.floor);
+    syncSlider('branch',P.branch); syncSlider('merge',P.merge); syncSlider('split',P.splitDeg);
+    // seeding buttons
+    [...$('seed-seg').children].forEach(x=>x.classList.toggle('on', x.dataset.seed===P.seed));
+    seed(P.seed);
+  }
+  function syncSlider(id,val){
+    const inp=$(id); inp.value=val;
+    const [lblId]=rangeMap[id]; $(lblId).textContent=labelFor(id,inp.value); fillFromInput(inp);
+  }
+
+  // actions
+  const btnPlay=$('btn-play');
+  btnPlay.addEventListener('click', ()=>{
+    P.running=!P.running;
+    btnPlay.textContent = P.running ? '⏸ Pause' : '▶ Resume';
+  });
+  $('btn-reseed').addEventListener('click', ()=> seed(P.seed));
+  $('btn-clear').addEventListener('click', ()=>{ trailA.fill(0); trailB.fill(0); if(P.seed==='grow'){ live=0; recyclePtr=0; } });
+  $('btn-random').addEventListener('click', ()=>{
+    const rnd=(a,b)=>a+Math.random()*(b-a);
+    P.speed=+rnd(0.5,2.2).toFixed(2); P.sdist=Math.round(rnd(4,26));
+    P.sangDeg=Math.round(rnd(12,65)); P.turnDeg=Math.round(rnd(8,70));
+    P.dep=+rnd(3,12).toFixed(1); P.evap=Math.round(rnd(3,12));
+    P.diff=Math.round(rnd(20,85)); P.glow=Math.round(rnd(90,220)); P.floor=Math.round(rnd(6,32)); P.explore=Math.round(rnd(15,80));
+    P.branch=Math.round(rnd(10,60)); P.merge=Math.round(rnd(15,55)); P.splitDeg=Math.round(rnd(18,70));
+    syncSlider('speed',P.speed); syncSlider('sdist',P.sdist); syncSlider('sang',P.sangDeg);
+    syncSlider('turn',P.turnDeg); syncSlider('explore',P.explore); syncSlider('dep',P.dep); syncSlider('evap',P.evap);
+    syncSlider('diff',P.diff); syncSlider('glow',P.glow); syncSlider('floor',P.floor);
+    syncSlider('branch',P.branch); syncSlider('merge',P.merge); syncSlider('split',P.splitDeg);
+  });
+
+  // mobile console toggle
+  $('toggle').addEventListener('click', ()=> document.body.classList.toggle('collapsed'));
+
+  // ---- pointer handling on canvas ----
+  function ptr(e){
+    const r=canvas.getBoundingClientRect();
+    const cx = (e.touches? e.touches[0].clientX : e.clientX);
+    const cy = (e.touches? e.touches[0].clientY : e.clientY);
+    brush.x=Math.min(1,Math.max(0,(cx-r.left)/r.width));
+    brush.y=Math.min(1,Math.max(0,(cy-r.top)/r.height));
+  }
+  let promptHidden=false;
+  canvas.addEventListener('pointerdown', e=>{
+    brush.active=true; brush.erase=(e.button===2)|| (e.pointerType==='touch' && e.isPrimary===false);
+    ptr(e); canvas.setPointerCapture?.(e.pointerId);
+    if(!promptHidden){ promptHidden=true; document.getElementById('prompt').classList.add('hide'); }
+  });
+  canvas.addEventListener('pointermove', e=>{ if(brush.active) ptr(e); });
+  window.addEventListener('pointerup', ()=>{ brush.active=false; brush.erase=false; });
+  canvas.addEventListener('contextmenu', e=> e.preventDefault());
+  // two-finger erase on touch
+  canvas.addEventListener('touchstart', e=>{ if(e.touches.length>=2) brush.erase=true; }, {passive:true});
+  canvas.addEventListener('touchend', e=>{ if(e.touches.length<2) brush.erase=false; }, {passive:true});
+
+  // ---- boot ----
+  let rt;
+  window.addEventListener('resize', ()=>{ clearTimeout(rt); rt=setTimeout(resize, 160); });
+  buildLUT(palName);
+  resize();
+  updateReadouts();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
